@@ -1,3 +1,5 @@
+--force-reinstall
+--no-cache-dir
 deepface
 opencv-python-headless
 pandas
