@@ -1,15 +1,15 @@
+
+import streamlit as st
+import os
+import pandas as pd
+from deepface import DeepFace
+import tempfile
 try:
     import cv2
 except ImportError as e:
     st.error(f"OpenCV import failed: {e}")
     st.error("Make sure you're using 'opencv-python-headless', not 'opencv-python'.")
     st.stop()
-import streamlit as st
-import cv2
-import os
-import pandas as pd
-from deepface import DeepFace
-import tempfile
 
 # Set page config
 st.set_page_config(page_title="Facial Sentiment Analysis", layout="wide")
