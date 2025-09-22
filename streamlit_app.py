@@ -7,9 +7,24 @@ How to run locally:
   streamlit run streamlit_app.py
 
 On Streamlit Cloud:
-  - requirements.txt: see README above
-  - packages.txt: libgl1 ... (listed above)
-  - runtime.txt: 3.11
+  - requirements.txt (recommended)
+      streamlit
+      pandas
+      numpy
+      altair
+      opencv-python-headless==4.10.0.84
+      deepface==0.0.93
+      tensorflow-cpu==2.20.0
+      tf-keras==2.20.0
+  - packages.txt
+      libgl1
+      libglib2.0-0
+      libsm6
+      libxext6
+      libxrender1
+      ffmpeg
+  - runtime.txt
+      3.11
 """
 
 import os
@@ -23,23 +38,32 @@ from typing import Any, Dict, List, Tuple
 
 import streamlit as st
 
-# ---- Robust import guard for OpenCV / DeepFace ----
+# ---- Robust import guard for OpenCV / TensorFlow / DeepFace ----
 try:
     import cv2  # from opencv-python-headless
 except Exception as e:
     st.error(
         f"OpenCV import failed: {e}\n\n"
-        "Fix: use 'opencv-python-headless' in requirements.txt "
-        "or add 'libgl1' to packages.txt (Streamlit Cloud)."
+        "Fix: use 'opencv-python-headless' in requirements.txt or add 'libgl1' to packages.txt."
     )
     st.stop()
+
+# Optional: verify TF + tf-keras pairing when present (DeepFace on TF>=2.16 needs tf-keras)
+try:
+    import tensorflow as tf  # noqa: F401
+    import tf_keras  # noqa: F401
+except Exception as e:
+    st.warning(
+        f"TensorFlow/Keras shim not ready: {e}. If DeepFace import fails, make sure "
+        "'tensorflow-cpu==2.20.0' and 'tf-keras==2.20.0' are in requirements.txt, and runtime.txt=3.11."
+    )
 
 try:
     from deepface import DeepFace
 except Exception as e:
     st.error(
         f"DeepFace import failed: {e}\n\n"
-        "Fix: pin DeepFace (e.g., deepface==0.0.93) and use Python 3.11 in runtime.txt."
+        "Fix: pin DeepFace (e.g., deepface==0.0.93) and ensure TF/tf-keras versions match (2.20)."
     )
     st.stop()
 
@@ -107,6 +131,7 @@ with st.sidebar:
 def readable_time(seconds: float) -> str:
     return str(timedelta(seconds=int(seconds)))
 
+
 def ensure_list(analysis_result: Any) -> List[Dict[str, Any]]:
     """DeepFace.analyze may return a dict (single face) or a list. Normalize to list."""
     if analysis_result is None:
@@ -114,6 +139,7 @@ def ensure_list(analysis_result: Any) -> List[Dict[str, Any]]:
     if isinstance(analysis_result, list):
         return analysis_result
     return [analysis_result]
+
 
 def resize_for_processing(frame: np.ndarray, target_w: int) -> Tuple[np.ndarray, float]:
     h, w = frame.shape[:2]
@@ -124,21 +150,13 @@ def resize_for_processing(frame: np.ndarray, target_w: int) -> Tuple[np.ndarray,
     resized = cv2.resize(frame, new_size, interpolation=cv2.INTER_AREA)
     return resized, scale
 
+
 def draw_label(img: np.ndarray, text: str, x: int, y: int) -> None:
     cv2.putText(
         img, text, (x, max(12, y - 6)),
         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA
     )
 
-@st.cache_resource(show_spinner=False)
-def load_emotion_model():
-    # Build the emotion model once and reuse across reruns
-    return DeepFace.build_model("Emotion")
-
-# Build cached models dict for analyze(); keys must match deepface expectations
-@st.cache_resource(show_spinner=False)
-def get_models_dict():
-    return {"emotion": load_emotion_model()}
 
 # ---------------------------
 # Uploader
@@ -180,7 +198,7 @@ m4.metric("Duration", readable_time(video_seconds))
 st.divider()
 
 # ---------------------------
-# Processing
+# Processing (no manual model build; let DeepFace manage and cache internally)
 # ---------------------------
 step = max(int(round(sample_every_sec * fps)), 1)
 progress = st.progress(0)
@@ -190,8 +208,6 @@ preview_frames: List[np.ndarray] = []
 
 current_index = 0
 processed_frames = 0
-
-models = get_models_dict()  # cached
 
 while True:
     grabbed = cap.grab()
@@ -211,15 +227,15 @@ while True:
 
     try:
         analysis = DeepFace.analyze(
-            img_path=proc_frame,          # ndarray is supported
+            img_path=proc_frame,          # ndarray supported
             actions=["emotion"],
             detector_backend=detector_backend,
             enforce_detection=False,      # don't crash if a face isn't found
             prog_bar=False,
-            models=models,                # reuse cached model
+            # NOTE: We purposefully do NOT pass a custom models dict here.
+            # DeepFace will load & cache the correct model for this version.
         )
     except Exception as e:
-        # Continue on transient failures; log inline
         status.warning(f"Analysis skipped at {timestamp_s:.2f}s: {e}")
         continue
 
@@ -241,7 +257,6 @@ while True:
             "face_index": i,
             "dominant_emotion": dominant,
         }
-        # copy all raw emotion scores (e.g., angry, sad, happy, neutral, etc.)
         for k, v in emotions.items():
             try:
                 row[k] = float(v)
@@ -250,7 +265,6 @@ while True:
 
         results.append(row)
 
-        # Draw bbox + label on preview
         if w > 0 and h > 0:
             cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 255, 0), 2)
             draw_label(annotated, dominant, x, y)
@@ -266,7 +280,6 @@ while True:
     if frame_count:
         progress.progress(min(1.0, current_index / frame_count))
     else:
-        # if unknown length, show cycling bar
         progress.progress((processed_frames % 100) / 100.0)
 
 cap.release()
@@ -310,12 +323,10 @@ if ALT_AVAILABLE:
     )
     st.altair_chart(chart, use_container_width=True)
 
-    # Average raw emotion scores over time (per sampled timestamp)
     st.subheader("Average emotion scores over time")
     score_cols = [c for c in df.columns if c not in {"timestamp_s", "frame", "face_index", "dominant_emotion"}]
     if score_cols:
-        melted = df.melt(id_vars=["timestamp_s"], value_vars=score_cols,
-                         var_name="emotion", value_name="score")
+        melted = df.melt(id_vars=["timestamp_s"], value_vars=score_cols, var_name="emotion", value_name="score")
         avg_scores = melted.groupby(["timestamp_s", "emotion"]).score.mean().reset_index()
         line = (
             alt.Chart(avg_scores)
@@ -338,7 +349,6 @@ if make_preview and preview_frames:
     h, w = preview_frames[0].shape[:2]
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # mp4v is broadly supported
     out_path = os.path.join(tempfile.gettempdir(), "preview_annotated.mp4")
-    # Playback FPS: limit to 24 for preview; ensure >= 4 for smoothness
     playback_fps = max(4.0, min(fps / step, 24.0))
     vw = cv2.VideoWriter(out_path, fourcc, playback_fps, (w, h))
     for f in preview_frames:
