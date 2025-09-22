@@ -1,3 +1,9 @@
+try:
+    import cv2
+except ImportError as e:
+    st.error(f"OpenCV import failed: {e}")
+    st.error("Make sure you're using 'opencv-python-headless', not 'opencv-python'.")
+    st.stop()
 import streamlit as st
 import cv2
 import os
