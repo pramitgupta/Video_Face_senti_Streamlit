@@ -1,16 +1,26 @@
-
-import streamlit as st
 import os
-import pandas as pd
-from deepface import DeepFace
-import tempfile
+import sys
+
+# Force OpenCV to use headless backend before any import
+os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
+os.environ["OPENCV_VIDEOIO_PRIORITY_FFMPEG"] = "0"
+
+# Optional: Pre-import cv2 to catch error early
 try:
     import cv2
 except ImportError as e:
-    st.error(f"OpenCV import failed: {e}")
-    st.error("Make sure you're using 'opencv-python-headless', not 'opencv-python'.")
-    st.stop()
+    if "libGL.so.1" in str(e):
+        st.error("❌ OpenCV GUI dependencies detected. You must use 'opencv-python-headless'.")
+        st.error("🔧 Fix: Update requirements.txt to force reinstall headless version.")
+        st.stop()
+    else:
+        raise e
 
+# Now proceed with other imports
+import streamlit as st
+import pandas as pd
+from deepface import DeepFace
+import tempfile
 # Set page config
 st.set_page_config(page_title="Facial Sentiment Analysis", layout="wide")
 
