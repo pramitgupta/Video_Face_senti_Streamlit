@@ -1,4 +1,5 @@
-deepface
-opencv-python-headless
-pandas
 streamlit
+pandas
+numpy
+opencv-python-headless==4.10.0.84
+deepface==0.0.93
