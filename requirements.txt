@@ -1,6 +1,8 @@
 streamlit
 pandas
 numpy
+altair
 opencv-python-headless==4.10.0.84
 deepface==0.0.93
-altair
+tensorflow-cpu==2.20.0
+tf-keras==2.20.0
